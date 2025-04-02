@@ -1,4 +1,7 @@
- 	----LÝ THUYẾT KỸ THUẬT PHÂN TRANG (PAGING)---- 
+
+
+
+	----LÝ THUYẾT KỸ THUẬT PHÂN TRANG (PAGING)---- 
   		    ( Hàm find_victim_page())
 
 1. Là kỹ thuật quản lý bộ nhớ, chia nhỏ thành các khối cố định gọi là (page) và ánh xạ chúng vào các khung (frame page) trong bộ nhớ vật lý

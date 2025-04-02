@@ -1,0 +1,88 @@
+ 	----LÝ THUYẾT KỸ THUẬT PHÂN TRANG (PAGING)---- 
+  		    ( Hàm find_victim_page())
+
+1. Là kỹ thuật quản lý bộ nhớ, chia nhỏ thành các khối cố định gọi là (page) và ánh xạ chúng vào các khung (frame page) trong bộ nhớ vật lý
++ VM chia thành các page có size cố định, vd 4KB
++ PM chia thành các frame cùng size với page
++ Page table: lưu ánh xạ giữa số trang trong vm và số khung trong pm
+
+2. Cách hệ thống truy cập một địa chỉ trong vm
+- CPU sẽ tạo địa chỉ logic
++ logic addr = page number + offset vd 0x1234 thuộc trang 4 nếu mỗi trang 4KB
+
+- Tra bảng trang để tìm vị trí trong bộ nhớ vật lý
++ Nếu có trong pm(RAM): lấy số khung trang (frame number) + offset
+
+3. Trang nạn nhân (victim page)
++ Khi bộ nhớ đầy, cần một trang trống để đẩy một tiến trình vào nhưng ko còn trang trống trong RAM -> Cần chọn một trang cũ và giải phóng nó, trang này gọi là trang nạn nhân.
+
++ Các thuật toán chọn trang:
+- FIFO: thay trang đầu tiên
+- LRU (Least REcently Used): thay trang ít được sử dụng nhất gần đây
+- LFU (Least Frequently U) thay trang ít được truy cập nhất
+
+
+
+  		 -----CẤP PHÁT BỘ NHỚ------   
+	(Trong vm-mm.c có hàm void* malloc() cấp phát bộ nhớ động của hệ thống)
+		(Hàm _alloc() tự hiện thực)
+
+0. Dùng pthread_mutex_lock() và unlock() để đồng bộ, ngăn interrupt trong lúc cấp phát
+
+1. Cấp phát thành công - gọi get_free_vmrg_area() để tìm vùng nhớ, nếu còn trống và đủ để cấp phát -> trả về 0 và alloc_addr
+
+2. Khi alloc failed,
+
++ get area có định danh vmaid (check null)
++ align inc_sz
++ Tạo struct regs gồm 3 regs và gọi syscall 17 -> gọi hàm inc_vma_limit() để mở rộng vùng nhớ
++ Sau khi mở rộng, cấp phát region và trả về địa chỉ alloc_addr là rg_start.
+
+
+
+	   ---GIẢI PHÓNG BỘ NHỚ----
+		(Hàm _free())
+
+0. Dùng pthread_mutex_lock() và unlock()
+
+1. Kiểm tra rgid có nằm trong bảng symbol ko
+
+2. Tìm vùng nhớ cần giải phóng bằng get_symrg_byid() và check null
+
+3. Sao chép thông tin của vùng nhớ này bằng malloc() gán vô new_rg
+
+4. Thêm new_rg vào list free_rg
+
+5. Đánh dấu vùng nhớ không hợp lệ -> tức là không truy cập, trừ khi cấp phát nó cho process khác
+
+***Lưu ý: Giải phóng bộ nhớ thực chất không xóa dữ liệu mà chỉ sao chép thông tin vùng nhớ và trả về list free_rg. Vùng nhớ kia sẽ bị đánh dấu ko hợp lệ. 
+Đến khi cấp phát lại, dữ liệu mới sẽ ghi đè lên dữ liệu cũ.
+
+VD: xóa dữ liệu
+memset(ptr, 0, size); xóa dữ liệu
+_free(ptr);
+ptr = null;
+
+
+	---- GET PAGE (NẾU CÓ TRONG RAM) - SWAP PAGE (NẾU KHÔNG CÓ TRONG RAM)--
+				(Hàm pg_getpage())
+
+1. Lấy pte (danh mục trang ảo) - mỗi trang có 32 bit
+
+2. Kiểm tra bit PRESENT(31) -> Nếu =1 get frame page bằng macro PAGING_FPN từ pte
+
+3. Nếu =0 thì swap. Swap victim page với 1 swap page trong MEMSWP bằng syscall 17. Swap target page với victim page từ MEMSWP sang MEMRAM
+
+
+	---- GETVAL VÀ SETVAL---- => LIBREAD VÀ LIBWRITE
+
+I. Getval: Đọc dữ liệu từ một địa chỉ ảo
+1. Chuyển địa chỉ ảo thành địa chỉ vật lý
+2. Gọi hàm pg_getpage() để lấy frame page trong RAM trả về fpn(frame page number) -> Cùng với offset tính được phyaddr
+3. Gọi syscall 17 để đọc và lưu data vào reg.a3 -> data = reg.a3
+
+II. Setval: Ghi dữ liệu vào một địa chỉ thực
+1. Chuyển địa chỉ ảo thành địa chỉ vật lý
+2. Gọi pg_getpage() tương tự trên tính được phyaddr
+3. Gọi syscall 17 để ghi data vào địa chỉ
+

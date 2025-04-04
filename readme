@@ -6,7 +6,7 @@
 
 1. Là kỹ thuật quản lý bộ nhớ, chia nhỏ thành các khối cố định gọi là (page) và ánh xạ chúng vào các khung (frame page) trong bộ nhớ vật lý
 + VM chia thành các page có size cố định, vd 4KB
-+ PM chia thành các frame cùng size với page
++ PM chia thành các frame cùng size
 + Page table: lưu ánh xạ giữa số trang trong vm và số khung trong pm
 
 2. Cách hệ thống truy cập một địa chỉ trong vm

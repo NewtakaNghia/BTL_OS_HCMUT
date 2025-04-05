@@ -86,16 +86,18 @@ int vmap_page_range(struct pcb_t *caller,           // process call
                     struct framephy_struct *frames, // list of the mapped frames
                     struct vm_rg_struct *ret_rg)    // return mapped region, the real mapped fp
 {                                                   // no guarantee all given pages are mapped
-  //struct framephy_struct *fpit;
+  struct framephy_struct *fpit = frames; //! Ham can hien thuc
   int pgit = 0;
   int pgn = PAGING_PGN(addr);
-
+  uint32_t *pte = malloc(sizeof(uint32_t));
+  // Ham anh xa mot khoang page sang mot vung dia chi ao o addr trong process.
   /* TODO: update the rg_end and rg_start of ret_rg 
   //ret_rg->rg_end =  ....
   //ret_rg->rg_start = ...
   //ret_rg->vmaid = ...
   */
-
+  ret_rg->rg_start = addr;
+  ret_rg->rg_end = addr + pgnum * PAGING_PAGESZ;
   /* TODO map range of frame to address space
    *      [addr to addr + pgnum*PAGING_PAGESZ
    *      in page table caller->mm->pgd[]
@@ -103,7 +105,16 @@ int vmap_page_range(struct pcb_t *caller,           // process call
 
   /* Tracking for later page replacement activities (if needed)
    * Enqueue new usage page */
-  enlist_pgn_node(&caller->mm->fifo_pgn, pgn + pgit);
+  struct framephy_struct *fpit = frames;
+  for(pgit = 0; pgit < pgnum && fpit != NULL; pgit++) {
+    if(init_pte(pte,1,fpit->fpn,0,0,0,0) != 0) {
+      //Can not init pte
+      return -1;
+    }
+    caller->mm->pgd[pgn + pgit] = *pte; //Cap nhat pgd 
+    enlist_pgn_node(&caller->mm->fifo_pgn, pgn + pgit); //Them node
+    fpit = fpit->fp_next;
+  }
 
   return 0;
 }
@@ -117,13 +128,14 @@ int vmap_page_range(struct pcb_t *caller,           // process call
 
 int alloc_pages_range(struct pcb_t *caller, int req_pgnum, struct framephy_struct **frm_lst)
 {
+  //! Ham can hien thuc
+  // Ham xin dia chi trong ram.
+  // neu dua vao khong du cho thi se swap ra ngoai.
   int pgit, fpn;
   struct framephy_struct *newfp_str = NULL;
-
-  /* TODO: allocate the page 
-  //caller-> ...
-  //frm_lst-> ...
-  */
+  struct framephy_struct *fp_tail = NULL;
+  struct framephy_struct *fp_head = NULL;
+  struct mm_struct *mm = caller->mm;
 
   for (pgit = 0; pgit < req_pgnum; pgit++)
   {
@@ -131,10 +143,80 @@ int alloc_pages_range(struct pcb_t *caller, int req_pgnum, struct framephy_struc
    */
     if (MEMPHY_get_freefp(caller->mram, &fpn) == 0)
     {
+      newfp_str = malloc(sizeof(struct framephy_struct));
       newfp_str->fpn = fpn;
+      newfp_str->owner = mm;
+      newfp_str->fp_next = NULL;
+      if(*frm_lst == NULL) {
+        // Cho vao dau list neu khong co frame nao
+        *frm_lst = newfp_str;
+        fp_tail = newfp_str;
+        fp_head = newfp_str;
+      } else
+      { // Cho vao cuoi list sau tail.
+        fp_tail->fp_next = newfp_str;
+        fp_tail = newfp_str;
+      }
     }
     else
     { // TODO: ERROR CODE of obtaining somes but not enough frames
+      /* nếu trong mram không đủ chỗ thì ta sẽ cố gắng swap một frame
+      trong mram ra ngoài rồi thêm vào swap.
+      */
+      if(MEMPHY_get_freefp(caller->active_mswp, &fpn) == 0) {
+        /* nếu trong mram đầy thì ta phải lấy một page victim trong mram
+          rồi đẩy sang active_mswp;
+          tìm chỗ trống trong active_mswp(nếu có)để hoán đổi.
+          tìm pte của ô nhớ victim trong mram.
+          thay pte trỏ tới vùng SWAP.
+          cập nhật frm_lst.
+        */
+        int victim_page;
+        int fpn_sw = fpn;  // trữ giá trị vị trí swap
+
+        if(find_victim_page(mm,&victim_page) < 0) {
+            // không tìm thấy.
+            printf("Can not find victim page\n");
+        }
+        // tìm pte của victim page
+        uint32_t *pte = malloc(sizeof(uint32_t));
+        *pte = mm->pgd[victim_page];
+        int fpn_ram = PAGING_PTE_FPN(*pte); // trích giá trị fpn vùng nhớ trong ram của pte 
+        if(init_pte(pte, 1, -1, 0, 1, 1, fpn_sw) != 0) {
+          printf("Can not change pte from ram to swap\n");
+        }
+        __swap_cp_page(caller->mram, fpn_ram, caller->active_mswp, fpn_sw);
+        mm->pgd[victim_page] = *pte;
+
+        newfp_str = malloc(sizeof(struct framephy_struct));
+        newfp_str->fpn = fpn;
+        newfp_str->owner = mm;
+        newfp_str->fp_next = NULL;
+        if(*frm_lst == NULL) {
+          // Cho vao dau list neu khong co frame nao
+          *frm_lst = newfp_str;
+          fp_tail = newfp_str;
+          fp_head = newfp_str;
+        } else
+        { // Cho vao cuoi list sau tail.
+          fp_tail->fp_next = newfp_str;
+          fp_tail = newfp_str;
+        }
+
+        if(pte) {
+          free(pte);
+        }
+      } else {
+        /* nếu như ngay cả trong active_mswp cũng không có chỗ trống thì
+          ta thu hồi lại vùng nhớ đã cấp phát trước rồi báo lỗi(-3000)
+        */
+       if(MEMPHY_get_freefp(caller->mram, &fpn) < 0 && 
+          MEMPHY_get_freefp(caller->active_mswp, &fpn) < 0) {
+          return -3000;
+       } else {
+          return -1;
+       }
+      }
     }
   }
 
@@ -214,6 +296,7 @@ int __swap_cp_page(struct memphy_struct *mpsrc, int srcfpn,
  */
 int init_mm(struct mm_struct *mm, struct pcb_t *caller)
 {
+  //! Ham can hien thuc
   struct vm_area_struct *vma0 = malloc(sizeof(struct vm_area_struct));
 
   mm->pgd = malloc(PAGING_MAX_PGN * sizeof(uint32_t));
@@ -228,13 +311,13 @@ int init_mm(struct mm_struct *mm, struct pcb_t *caller)
 
   /* TODO update VMA0 next */
   // vma0->next = ...
-
+  vma0->vm_next = NULL; // mm se them cac vung nho khac vao sau.
   /* Point vma owner backward */
   vma0->vm_mm = mm; 
 
   /* TODO: update mmap */
   //mm->mmap = ...
-
+  mm->mmap = vma0;
   return 0;
 }
 

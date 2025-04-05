@@ -163,6 +163,35 @@ int MEMPHY_dump(struct memphy_struct *mp)
   /*TODO dump memphy contnt mp->storage
    *     for tracing the memory content
    */
+  // Ham nham in ra cac thong tin chua trong memphy nham phuc vu debug
+   if(!mp->storage || !mp->maxsz == 0) {
+      printf("Memory is not initialized!");
+      return -1;
+   }
+   printf("MEMPHY Dump (Size: %d):\n", mp->maxsz);
+   //! in ra so luong free_fp, used_fp
+   int free_fp_count = 0;
+   struct framephy_struct *fpit = mp->free_fp_list;
+   while(fpit != NULL) {
+      free_fp_count++;
+      fpit = fpit->fp_next;
+   }
+
+   int used_fp_count = 0;
+   fpit = mp->used_fp_list;
+   while(fpit != NULL) {
+      used_fp_count++;
+      fpit = fpit->fp_next;
+   }
+   printf("Free frames in memphy: %d\n", free_fp_count);
+   printf("Used frames in memphy: %d\n", used_fp_count);
+   //! In tung BYTE ra:
+   for (int i = 0; i < mp->maxsz; i++) {
+      if (mp->storage[i] != 0) {
+         printf("%d: 0x%08llx\t\t0x%08x\n", i, (uintptr_t)(mp->storage + i), mp->storage[i]);
+      }
+   }
+   printf("\n");
    return 0;
 }
 

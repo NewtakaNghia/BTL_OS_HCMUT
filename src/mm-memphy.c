@@ -163,7 +163,8 @@ int MEMPHY_dump(struct memphy_struct *mp)
   /*TODO dump memphy contnt mp->storage
    *     for tracing the memory content
    */
-   if (mp == NULL || mp -> storage == NULL) {
+   if (mp == NULL || mp -> storage == NULL || mp -> maxsz == 0) {
+      printf("Error: Invalid memphy_struct.\n");
       return -1;
    }
 

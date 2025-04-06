@@ -13,6 +13,8 @@ static struct queue_t running_list;
 #ifdef MLQ_SCHED
 static struct queue_t mlq_ready_queue[MAX_PRIO];
 static int slot[MAX_PRIO];
+static int current_prio = 0;
+static int current_slot = 0;
 #endif
 
 int queue_empty(void) {
@@ -33,7 +35,11 @@ void init_scheduler(void) {
 		mlq_ready_queue[i].size = 0;
 		slot[i] = MAX_PRIO - i; 
 	}
+	current_prio = 0;
+	current_slot = slot[0];
 #endif
+
+	running_list.size = 0;
 	ready_queue.size = 0;
 	run_queue.size = 0;
 	pthread_mutex_init(&queue_lock, NULL);
@@ -48,21 +54,45 @@ void init_scheduler(void) {
  */
 struct pcb_t * get_mlq_proc(void) {
 	struct pcb_t * proc = NULL;
+	pthread_mutex_lock(&queue_lock);
 	/*TODO: get a process from PRIORITY [ready_queue].
 	 * Remember to use lock to protect the queue.
 	 * */
+	
+	
+	for (int attempt = 0; attempt < MAX_PRIO; attempt++) {
+		int p = (current_prio + attempt) % MAX_PRIO;
+		if (!empty(&mlq_ready_queue[p])) {
+			if (p != current_prio || current_slot == 0) {
+				current_prio = p;
+				current_slot = slot[p];
+			}
+			if (current_slot > 0) {
+				proc = dequeue(&mlq_ready_queue[p]);
+				current_slot--;
+				break;
+			}
+		}
+	}
+	pthread_mutex_unlock(&queue_lock);
 	return proc;	
 }
 
 void put_mlq_proc(struct pcb_t * proc) {
-	pthread_mutex_lock(&queue_lock);
-	enqueue(&mlq_ready_queue[proc->prio], proc);
-	pthread_mutex_unlock(&queue_lock);
+	if (proc->pc < proc->code->size) {
+		pthread_mutex_lock(&queue_lock);
+		enqueue(&mlq_ready_queue[proc->prio], proc);
+		enqueue(&running_list, proc);
+		pthread_mutex_unlock(&queue_lock);
+	} else {
+		printf("\tCPU: Processed  %d has finished\n", proc->pid);
+	}
 }
 
 void add_mlq_proc(struct pcb_t * proc) {
 	pthread_mutex_lock(&queue_lock);
 	enqueue(&mlq_ready_queue[proc->prio], proc);
+	enqueue(&running_list, proc);
 	pthread_mutex_unlock(&queue_lock);	
 }
 
@@ -121,5 +151,6 @@ void add_proc(struct pcb_t * proc) {
 	pthread_mutex_unlock(&queue_lock);	
 }
 #endif
+
 
 

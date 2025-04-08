@@ -93,6 +93,10 @@ void add_mlq_proc(struct pcb_t * proc) {
 	pthread_mutex_lock(&queue_lock);
 	enqueue(&mlq_ready_queue[proc->prio], proc);
 	enqueue(&running_list, proc);
+	if (proc->prio < current_prio) {
+		current_prio = proc->prio;
+		current_slot = slot[proc->prio];
+	}
 	pthread_mutex_unlock(&queue_lock);	
 }
 
